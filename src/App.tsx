@@ -38,11 +38,11 @@ interface HedgePosition {
 
 type TabType = 'dashboard' | 'holdings' | 'hedge' | 'backtest' | 'settings';
 
-// Local Storage Keys
+// Local Storage Keys - v3 to reset with new defaults
 const STORAGE_KEYS = {
-  settings: 'tw50plus2_settings_v2',
-  marketData: 'tw50plus2_market_v2',
-  hedgePosition: 'tw50plus2_hedge_v2'
+  settings: 'tw50plus2_settings_v3',
+  marketData: 'tw50plus2_market_v3',
+  hedgePosition: 'tw50plus2_hedge_v3'
 };
 
 function App() {
@@ -77,7 +77,7 @@ function App() {
       targetRatio: 0.8,
       maPeriod: 13,
       marginPerContract: 85000,
-      safetyMultiplier: 3.0
+      safetyMultiplier: 2.0  // Changed from 3.0 to 2.0 so hedging is possible
     })
   );
 
