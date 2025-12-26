@@ -130,6 +130,12 @@ function App() {
     localStorage.setItem(STORAGE_KEYS.hedgePosition, JSON.stringify(hedgePosition));
   }, [hedgePosition]);
 
+  useEffect(() => {
+    if (portfolio.fromBacktest) {
+      localStorage.setItem(STORAGE_KEYS.portfolio, JSON.stringify(portfolio));
+    }
+  }, [portfolio]);
+
   // Online status listener
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
