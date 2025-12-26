@@ -36,13 +36,22 @@ interface HedgePosition {
   entryPrice: number;
 }
 
+// Portfolio state from backtest
+interface Portfolio {
+  etfShares: number;
+  hedgeCapital: number;
+  fromBacktest: boolean;
+  backtestStartDate?: string;
+}
+
 type TabType = 'dashboard' | 'holdings' | 'hedge' | 'backtest' | 'settings';
 
-// Local Storage Keys - v3 to reset with new defaults
+// Local Storage Keys - v4 to add portfolio
 const STORAGE_KEYS = {
-  settings: 'tw50plus2_settings_v3',
-  marketData: 'tw50plus2_market_v3',
-  hedgePosition: 'tw50plus2_hedge_v3'
+  settings: 'tw50plus2_settings_v4',
+  marketData: 'tw50plus2_market_v4',
+  hedgePosition: 'tw50plus2_hedge_v4',
+  portfolio: 'tw50plus2_portfolio_v4'
 };
 
 function App() {
@@ -96,6 +105,15 @@ function App() {
   const [backtestEndDate, setBacktestEndDate] = useState(dateRange.maxDate);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [isBacktesting, setIsBacktesting] = useState(false);
+
+  // Portfolio state (from backtest or manual)
+  const [portfolio, setPortfolio] = useState<Portfolio>(() =>
+    loadFromStorage(STORAGE_KEYS.portfolio, {
+      etfShares: 0,
+      hedgeCapital: 0,
+      fromBacktest: false
+    })
+  );
 
   // Save to localStorage when state changes
   useEffect(() => {
@@ -171,14 +189,20 @@ function App() {
 
   // ============ CALCULATIONS ============
 
-  const allocation = calculateInitialAllocation(
+  // Base allocation calculation (for comparison and settings without backtest)
+  const baseAllocation = calculateInitialAllocation(
     settings.initialCapital,
     settings.targetRatio,
     marketData.etfPrice
   );
 
+  // Use portfolio from backtest if available, otherwise use fresh calculation
+  const displayEtfShares = portfolio.fromBacktest ? portfolio.etfShares : baseAllocation.etfShares;
+  const displayHedgeCapital = portfolio.fromBacktest ? portfolio.hedgeCapital : baseAllocation.hedgeAllocation;
+  const displayEtfValue = displayEtfShares * SHARES_PER_UNIT * marketData.etfPrice;
+
   const hedgeInfo = calculateHedgeContracts(
-    allocation.hedgeAllocation,
+    displayHedgeCapital,
     settings.marginPerContract,
     settings.safetyMultiplier
   );
@@ -196,10 +220,40 @@ function App() {
     )
     : { pnl: 0, pnlPoints: 0 };
 
-  const totalAssets = allocation.etfValue + allocation.hedgeAllocation + (hedgePosition.isActive ? hedgePnL.pnl : 0);
+  const totalAssets = displayEtfValue + displayHedgeCapital + (hedgePosition.isActive ? hedgePnL.pnl : 0);
 
   const maDiff = marketData.indexPrice - marketData.maValue;
   const isAboveMA = maDiff >= 0;
+
+  // Apply backtest results to portfolio
+  const applyBacktestToPortfolio = useCallback(() => {
+    if (backtestResult) {
+      const lastDay = backtestResult.dailyResults[backtestResult.dailyResults.length - 1];
+      setPortfolio({
+        etfShares: lastDay.etfShares,
+        hedgeCapital: lastDay.hedgeCapital,
+        fromBacktest: true,
+        backtestStartDate: backtestResult.summary.startDate
+      });
+      localStorage.setItem(STORAGE_KEYS.portfolio, JSON.stringify({
+        etfShares: lastDay.etfShares,
+        hedgeCapital: lastDay.hedgeCapital,
+        fromBacktest: true,
+        backtestStartDate: backtestResult.summary.startDate
+      }));
+      setActiveTab('dashboard');
+    }
+  }, [backtestResult]);
+
+  // Reset portfolio to fresh calculation
+  const resetPortfolio = useCallback(() => {
+    setPortfolio({
+      etfShares: 0,
+      hedgeCapital: 0,
+      fromBacktest: false
+    });
+    localStorage.removeItem(STORAGE_KEYS.portfolio);
+  }, []);
 
   const toggleHedge = () => {
     if (hedgePosition.isActive) {
@@ -268,17 +322,27 @@ function App() {
               )}
             </div>
 
+            {/* Backtest Banner */}
+            {portfolio.fromBacktest && (
+              <div className="backtest-banner">
+                <span>📊 資料來源：回測結果 (起始日 {portfolio.backtestStartDate})</span>
+                <button className="btn btn-secondary btn-sm" onClick={resetPortfolio}>
+                  重置
+                </button>
+              </div>
+            )}
+
             {/* Stats Grid */}
             <div className="stats-grid">
               <StatCard label="初始資金" icon="💰" value={formatCompactNumber(settings.initialCapital)} subValue={`${(settings.targetRatio * 100).toFixed(0)}/${((1 - settings.targetRatio) * 100).toFixed(0)} 配置`} />
               <StatCard label="加權指數" icon="📈" value={formatNumber(marketData.indexPrice)} />
-              <StatCard label="00631L" icon="💹" value={marketData.etfPrice.toFixed(2)} subValue={`${allocation.etfShares} 張`} />
-              <StatCard label="ETF 市值" icon="📊" value={formatCompactNumber(allocation.etfValue)} subValue={`${(settings.targetRatio * 100).toFixed(0)}%`} />
-              <StatCard label="避險資金" icon="🛡️" value={formatCompactNumber(allocation.hedgeAllocation)} subValue={`可做空 ${hedgeInfo.maxContracts} 口`} />
+              <StatCard label="00631L" icon="💹" value={marketData.etfPrice.toFixed(2)} subValue={`${displayEtfShares} 張`} />
+              <StatCard label="ETF 市值" icon="📊" value={formatCompactNumber(displayEtfValue)} subValue={`${(settings.targetRatio * 100).toFixed(0)}%`} />
+              <StatCard label="避險資金" icon="🛡️" value={formatCompactNumber(displayHedgeCapital)} subValue={`可做空 ${hedgeInfo.maxContracts} 口`} />
               <StatCard label="總資產" icon="💎" value={formatCompactNumber(totalAssets)} size="large" />
             </div>
 
-            <AllocationBar currentRatio={allocation.etfValue / (allocation.etfValue + allocation.hedgeAllocation)} targetRatio={settings.targetRatio} />
+            <AllocationBar currentRatio={displayEtfValue / (displayEtfValue + displayHedgeCapital)} targetRatio={settings.targetRatio} />
 
             {/* MA Status */}
             <div className={`ma-status-card ${isAboveMA ? 'safe' : 'warning'}`}>
@@ -314,8 +378,8 @@ function App() {
               <h2 className="section-title">📊 配置計算結果</h2>
               <div className="summary-card">
                 <div className="summary-row"><span>初始資金</span><span className="summary-value">{formatNumber(settings.initialCapital)}</span></div>
-                <div className="summary-row"><span>ETF 配置 ({(settings.targetRatio * 100).toFixed(0)}%)</span><span className="summary-value">{formatNumber(allocation.etfAllocation)}</span></div>
-                <div className="summary-row"><span>避險配置 ({((1 - settings.targetRatio) * 100).toFixed(0)}%)</span><span className="summary-value">{formatNumber(allocation.hedgeAllocation)}</span></div>
+                <div className="summary-row"><span>ETF 配置 ({(settings.targetRatio * 100).toFixed(0)}%)</span><span className="summary-value">{formatNumber(baseAllocation.etfAllocation)}</span></div>
+                <div className="summary-row"><span>避險配置 ({((1 - settings.targetRatio) * 100).toFixed(0)}%)</span><span className="summary-value">{formatNumber(displayHedgeCapital)}</span></div>
               </div>
             </div>
 
@@ -323,9 +387,9 @@ function App() {
               <h2 className="section-title">💹 00631L 部位</h2>
               <div className="summary-card">
                 <div className="summary-row"><span>現價</span><span className="summary-value">{marketData.etfPrice.toFixed(2)}</span></div>
-                <div className="summary-row highlight"><span>持有張數</span><span className="summary-value">{allocation.etfShares} 張</span></div>
-                <div className="summary-row"><span>持有股數</span><span className="summary-value">{formatNumber(allocation.etfShares * SHARES_PER_UNIT)} 股</span></div>
-                <div className="summary-row"><span>ETF 市值</span><span className="summary-value">{formatNumber(allocation.etfValue)}</span></div>
+                <div className="summary-row highlight"><span>持有張數</span><span className="summary-value">{displayEtfShares} 張</span></div>
+                <div className="summary-row"><span>持有股數</span><span className="summary-value">{formatNumber(displayEtfShares * SHARES_PER_UNIT)} 股</span></div>
+                <div className="summary-row"><span>ETF 市值</span><span className="summary-value">{formatNumber(displayEtfValue)}</span></div>
               </div>
             </div>
 
@@ -365,7 +429,7 @@ function App() {
             <div className="input-section">
               <h2 className="section-title">🛡️ 避險資訊</h2>
               <div className="summary-card">
-                <div className="summary-row"><span>避險資金</span><span className="summary-value">{formatNumber(allocation.hedgeAllocation)}</span></div>
+                <div className="summary-row"><span>避險資金</span><span className="summary-value">{formatNumber(displayHedgeCapital)}</span></div>
                 <div className="summary-row"><span>每口保證金</span><span className="summary-value">{formatNumber(settings.marginPerContract)}</span></div>
                 <div className="summary-row"><span>安全倍數</span><span className="summary-value">{settings.safetyMultiplier.toFixed(1)}x</span></div>
                 <div className="summary-row highlight"><span>可做空口數</span><span className="summary-value">{hedgeInfo.maxContracts} 口</span></div>
@@ -466,6 +530,11 @@ function App() {
                     })}
                   </div>
                 </div>
+
+                {/* Apply to Dashboard Button */}
+                <button className="btn btn-primary btn-full" onClick={applyBacktestToPortfolio}>
+                  ✅ 套用到總覽 (ETF {backtestResult.dailyResults[backtestResult.dailyResults.length - 1].etfShares} 張)
+                </button>
               </div>
             )}
           </div>
