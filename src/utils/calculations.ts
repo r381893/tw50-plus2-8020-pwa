@@ -50,9 +50,8 @@ export function calculateRebalanceAction(
     const targetEtfValue = totalAssets * targetRatio;
     const difference = targetEtfValue - etfValue;
 
-    // 交易成本 (手續費 0.1425% + 稅 0.1%)
-    const tradingCostRate = 0.001425 * 0.6 + 0.001;
-    const minTradeThreshold = 10000; // 差異小於 1 萬不交易
+    // 差異小於 1 萬不交易
+    const minTradeThreshold = 10000;
 
     if (Math.abs(difference) < minTradeThreshold) {
         return { action: 'hold', shares: 0, amount: 0 };
