@@ -105,6 +105,8 @@ function App() {
   const [backtestEndDate, setBacktestEndDate] = useState(dateRange.maxDate);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [isBacktesting, setIsBacktesting] = useState(false);
+  const [enableRebalance, setEnableRebalance] = useState(true);
+  const [showTradeLogs, setShowTradeLogs] = useState(false);
 
   // Portfolio state (from backtest or manual)
   const [portfolio, setPortfolio] = useState<Portfolio>(() =>
@@ -168,6 +170,7 @@ function App() {
   // Run backtest
   const handleRunBacktest = useCallback(() => {
     setIsBacktesting(true);
+    setShowTradeLogs(false);
     try {
       const result = runBacktest(historicalData, {
         startDate: backtestStartDate,
@@ -176,7 +179,8 @@ function App() {
         etfRatio: settings.targetRatio,
         maPeriod: settings.maPeriod,
         marginPerContract: settings.marginPerContract,
-        safetyMultiplier: settings.safetyMultiplier
+        safetyMultiplier: settings.safetyMultiplier,
+        enableRebalance
       });
       setBacktestResult(result);
     } catch (error) {
@@ -185,7 +189,7 @@ function App() {
     } finally {
       setIsBacktesting(false);
     }
-  }, [backtestStartDate, backtestEndDate, settings]);
+  }, [backtestStartDate, backtestEndDate, settings, enableRebalance]);
 
   // ============ CALCULATIONS ============
 
@@ -480,6 +484,13 @@ function App() {
                 </div>
               </div>
 
+              <div className="form-group">
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={enableRebalance} onChange={(e) => setEnableRebalance(e.target.checked)} />
+                  啟用每月再平衡 (根據 {(settings.targetRatio * 100).toFixed(0)}/{((1 - settings.targetRatio) * 100).toFixed(0)} 比例)
+                </label>
+              </div>
+
               <button className={`btn btn-primary btn-full ${isBacktesting ? 'loading' : ''}`} onClick={handleRunBacktest} disabled={isBacktesting}>
                 {isBacktesting ? '⏳ 回測中...' : '🚀 開始回測'}
               </button>
@@ -513,6 +524,9 @@ function App() {
                       {formatPnL(Math.round(backtestResult.summary.totalHedgePnL))}
                     </span>
                   </div>
+                  {backtestResult.summary.rebalanceTrades > 0 && (
+                    <div className="summary-row"><span>再平衡次數</span><span className="summary-value">{backtestResult.summary.rebalanceTrades} 次</span></div>
+                  )}
                 </div>
 
                 {/* Simple equity chart using CSS */}
@@ -530,6 +544,44 @@ function App() {
                     })}
                   </div>
                 </div>
+
+                {/* Trade Log Toggle */}
+                <button className="btn btn-secondary btn-full" onClick={() => setShowTradeLogs(!showTradeLogs)}>
+                  {showTradeLogs ? '📋 隱藏交易明細' : '📋 顯示交易明細'} ({backtestResult.tradeLogs.length} 筆)
+                </button>
+
+                {/* Trade Log Table */}
+                {showTradeLogs && (
+                  <div className="trade-log-container">
+                    <table className="trade-log-table">
+                      <thead>
+                        <tr>
+                          <th>日期</th>
+                          <th>類型</th>
+                          <th>說明</th>
+                          <th>損益</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {backtestResult.tradeLogs.map((log, idx) => (
+                          <tr key={idx} className={`trade-row trade-${log.type}`}>
+                            <td>{log.date}</td>
+                            <td>
+                              {log.type === 'buy' && '🟢 建倉'}
+                              {log.type === 'rebalance' && '⚖️ 再平衡'}
+                              {log.type === 'hedge_open' && '🔴 避險'}
+                              {log.type === 'hedge_close' && '🟡 平倉'}
+                            </td>
+                            <td>{log.description}</td>
+                            <td className={log.pnl && log.pnl >= 0 ? 'positive' : log.pnl ? 'negative' : ''}>
+                              {log.pnl ? formatPnL(Math.round(log.pnl)) : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
                 {/* Apply to Dashboard Button */}
                 <button className="btn btn-primary btn-full" onClick={applyBacktestToPortfolio}>

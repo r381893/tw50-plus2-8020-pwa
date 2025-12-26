@@ -1,5 +1,5 @@
 /**
- * 回測邏輯
+ * 回測邏輯 - 含每月再平衡和交易明細
  */
 
 export interface BacktestParams {
@@ -10,6 +10,21 @@ export interface BacktestParams {
     maPeriod: number;
     marginPerContract: number;
     safetyMultiplier: number;
+    enableRebalance: boolean; // 是否啟用每月再平衡
+}
+
+export interface TradeLog {
+    date: string;
+    type: 'buy' | 'sell' | 'hedge_open' | 'hedge_close' | 'rebalance';
+    description: string;
+    shares?: number;
+    contracts?: number;
+    price: number;
+    amount: number;
+    pnl?: number;
+    etfSharesAfter: number;
+    hedgeCapitalAfter: number;
+    totalEquityAfter: number;
 }
 
 export interface DailyResult {
@@ -28,6 +43,7 @@ export interface DailyResult {
 
 export interface BacktestResult {
     dailyResults: DailyResult[];
+    tradeLogs: TradeLog[];
     summary: {
         startDate: string;
         endDate: string;
@@ -38,6 +54,7 @@ export interface BacktestResult {
         maxDrawdown: number;
         totalHedgePnL: number;
         hedgeTrades: number;
+        rebalanceTrades: number;
     };
 }
 
@@ -55,7 +72,7 @@ function calculateMA(prices: number[], period: number): number[] {
 
     for (let i = 0; i < prices.length; i++) {
         if (i < period - 1) {
-            ma.push(0); // Not enough data for MA
+            ma.push(0);
         } else {
             const slice = prices.slice(i - period + 1, i + 1);
             const avg = slice.reduce((sum, p) => sum + p, 0) / period;
@@ -99,17 +116,86 @@ export function runBacktest(
     let hedgeEntryPrice = 0;
     let totalHedgePnL = 0;
     let hedgeTrades = 0;
+    let rebalanceTrades = 0;
+    let lastMonth = new Date(filteredData[0].date).getMonth();
 
     const dailyResults: DailyResult[] = [];
+    const tradeLogs: TradeLog[] = [];
     let maxEquity = params.initialCapital;
     let maxDrawdown = 0;
+
+    // Record initial purchase
+    tradeLogs.push({
+        date: filteredData[0].date,
+        type: 'buy',
+        description: `建倉買進 ${initialShares} 張`,
+        shares: initialShares,
+        price: firstEtfPrice,
+        amount: initialShares * 1000 * firstEtfPrice,
+        etfSharesAfter: initialShares,
+        hedgeCapitalAfter: hedgeCapital,
+        totalEquityAfter: params.initialCapital
+    });
 
     for (let i = 0; i < filteredData.length; i++) {
         const { date, indexPrice, etfPrice } = filteredData[i];
         const maValue = maValues[i];
+        const currentMonth = new Date(date).getMonth();
 
         // Calculate ETF value
-        const etfValue = etfShares * 1000 * etfPrice;
+        let etfValue = etfShares * 1000 * etfPrice;
+
+        // Monthly rebalancing (at month change)
+        if (params.enableRebalance && i > 0 && currentMonth !== lastMonth && hedgeContracts === 0) {
+            const totalEquity = etfValue + hedgeCapital;
+            const targetEtfValue = totalEquity * params.etfRatio;
+            const currentEtfValue = etfValue;
+            const diff = targetEtfValue - currentEtfValue;
+
+            // Only rebalance if difference is significant (> 1%)
+            if (Math.abs(diff) > totalEquity * 0.01) {
+                const sharesToTrade = Math.round(diff / (etfPrice * 1000));
+
+                if (sharesToTrade !== 0) {
+                    const tradeAmount = Math.abs(sharesToTrade) * 1000 * etfPrice;
+
+                    if (sharesToTrade > 0) {
+                        // Buy more ETF
+                        etfShares += sharesToTrade;
+                        hedgeCapital -= tradeAmount;
+                        tradeLogs.push({
+                            date,
+                            type: 'rebalance',
+                            description: `再平衡買進 ${sharesToTrade} 張`,
+                            shares: sharesToTrade,
+                            price: etfPrice,
+                            amount: tradeAmount,
+                            etfSharesAfter: etfShares,
+                            hedgeCapitalAfter: hedgeCapital,
+                            totalEquityAfter: totalEquity
+                        });
+                    } else {
+                        // Sell ETF
+                        etfShares += sharesToTrade; // sharesToTrade is negative
+                        hedgeCapital += tradeAmount;
+                        tradeLogs.push({
+                            date,
+                            type: 'rebalance',
+                            description: `再平衡賣出 ${Math.abs(sharesToTrade)} 張`,
+                            shares: sharesToTrade,
+                            price: etfPrice,
+                            amount: tradeAmount,
+                            etfSharesAfter: etfShares,
+                            hedgeCapitalAfter: hedgeCapital,
+                            totalEquityAfter: totalEquity
+                        });
+                    }
+                    rebalanceTrades++;
+                    etfValue = etfShares * 1000 * etfPrice;
+                }
+            }
+        }
+        lastMonth = currentMonth;
 
         // Determine signal
         const isBelowMA = maValue > 0 && indexPrice < maValue;
@@ -126,6 +212,18 @@ export function runBacktest(
                     hedgeEntryPrice = indexPrice;
                     hedgeTrades++;
                     signal = 'hedge';
+
+                    tradeLogs.push({
+                        date,
+                        type: 'hedge_open',
+                        description: `跌破均線，做空 ${canShort} 口小台 @ ${indexPrice.toFixed(0)}`,
+                        contracts: canShort,
+                        price: indexPrice,
+                        amount: canShort * params.marginPerContract,
+                        etfSharesAfter: etfShares,
+                        hedgeCapitalAfter: hedgeCapital,
+                        totalEquityAfter: etfValue + hedgeCapital
+                    });
                 }
             } else if (!isBelowMA && hedgeContracts > 0) {
                 // Exit hedge: close short
@@ -133,6 +231,20 @@ export function runBacktest(
                 dailyHedgePnL = hedgeContracts * pnlPoints * 50; // 小台每點50元
                 hedgeCapital += dailyHedgePnL;
                 totalHedgePnL += dailyHedgePnL;
+
+                tradeLogs.push({
+                    date,
+                    type: 'hedge_close',
+                    description: `站上均線，平倉 ${hedgeContracts} 口小台 @ ${indexPrice.toFixed(0)}`,
+                    contracts: hedgeContracts,
+                    price: indexPrice,
+                    amount: 0,
+                    pnl: dailyHedgePnL,
+                    etfSharesAfter: etfShares,
+                    hedgeCapitalAfter: hedgeCapital,
+                    totalEquityAfter: etfValue + hedgeCapital
+                });
+
                 hedgeContracts = 0;
                 hedgeEntryPrice = 0;
                 signal = 'long';
@@ -184,6 +296,7 @@ export function runBacktest(
 
     return {
         dailyResults,
+        tradeLogs,
         summary: {
             startDate: params.startDate,
             endDate: params.endDate,
@@ -193,7 +306,8 @@ export function runBacktest(
             totalReturnPercent,
             maxDrawdown: maxDrawdown * 100,
             totalHedgePnL,
-            hedgeTrades
+            hedgeTrades,
+            rebalanceTrades
         }
     };
 }
