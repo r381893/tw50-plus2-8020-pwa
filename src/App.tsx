@@ -156,10 +156,17 @@ function App() {
     try {
       const prices = await fetchAllPrices();
       if (prices) {
+        // Calculate MA from last N days of historical data
+        const recentData = historicalData.slice(-settings.maPeriod);
+        const maValue = recentData.length >= settings.maPeriod
+          ? Math.round(recentData.reduce((sum, d) => sum + d.indexPrice, 0) / settings.maPeriod)
+          : prices.indexPrice;
+
         setMarketData(prev => ({
           ...prev,
           indexPrice: Math.round(prices.indexPrice * 100) / 100,
-          etfPrice: Math.round(prices.etfPrice * 100) / 100
+          etfPrice: Math.round(prices.etfPrice * 100) / 100,
+          maValue
         }));
         setLastUpdate(prices.timestamp);
       } else {
@@ -171,7 +178,7 @@ function App() {
     } finally {
       setIsFetching(false);
     }
-  }, []);
+  }, [settings.maPeriod]);
 
   // Run backtest
   const handleRunBacktest = useCallback(() => {
