@@ -183,3 +183,108 @@ export function getAllocationHealth(
         return { status: 'danger', message: '需要再平衡' };
     }
 }
+
+/**
+ * 計算初始配置
+ * 根據總資金和配置比例，計算 ETF 張數和避險資金
+ */
+export function calculateInitialAllocation(
+    initialCapital: number,
+    etfRatio: number,
+    etfPrice: number
+): {
+    etfAllocation: number;
+    hedgeAllocation: number;
+    etfShares: number;
+    etfValue: number;
+} {
+    const etfAllocation = initialCapital * etfRatio;
+    const hedgeAllocation = initialCapital * (1 - etfRatio);
+
+    // 計算可買張數 (每張 = 1000 股)
+    const etfShares = Math.floor(etfAllocation / (etfPrice * SHARES_PER_UNIT));
+    const etfValue = etfShares * SHARES_PER_UNIT * etfPrice;
+
+    return {
+        etfAllocation,
+        hedgeAllocation,
+        etfShares,
+        etfValue
+    };
+}
+
+/**
+ * 計算避險口數
+ * 根據避險資金和保證金設定，計算可做空的期貨口數
+ */
+export function calculateHedgeContracts(
+    hedgeCapital: number,
+    marginPerContract: number,
+    safetyMultiplier: number
+): {
+    maxContracts: number;
+    marginRequired: number;
+    availableCapital: number;
+} {
+    const effectiveMargin = marginPerContract * safetyMultiplier;
+    const maxContracts = Math.floor(hedgeCapital / effectiveMargin);
+    const marginRequired = maxContracts * marginPerContract;
+    const availableCapital = hedgeCapital - marginRequired;
+
+    return {
+        maxContracts,
+        marginRequired,
+        availableCapital
+    };
+}
+
+/**
+ * 計算避險狀態
+ * 根據均線判斷是否需要啟動避險
+ */
+export function calculateHedgeStatus(
+    indexPrice: number,
+    maValue: number
+): {
+    shouldHedge: boolean;
+    action: 'short' | 'hold';
+    message: string;
+} {
+    const isBelowMA = indexPrice < maValue;
+
+    if (isBelowMA) {
+        return {
+            shouldHedge: true,
+            action: 'short',
+            message: '⚠️ 跌破均線，建議做空避險'
+        };
+    } else {
+        return {
+            shouldHedge: false,
+            action: 'hold',
+            message: '✅ 站上均線，現金待命'
+        };
+    }
+}
+
+/**
+ * 計算避險損益
+ * 計算做空期貨的損益
+ */
+export function calculateHedgePnL(
+    contracts: number,
+    entryPrice: number,
+    currentPrice: number,
+    pointValue: number = 50 // 小台每點 50 元
+): {
+    pnl: number;
+    pnlPoints: number;
+} {
+    const pnlPoints = entryPrice - currentPrice; // 做空，入場價 - 現價
+    const pnl = contracts * pnlPoints * pointValue;
+
+    return {
+        pnl,
+        pnlPoints
+    };
+}

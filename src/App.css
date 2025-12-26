@@ -5,6 +5,61 @@
   flex-direction: column;
 }
 
+/* Fetch Price Section */
+.fetch-price-section {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.last-update {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.btn.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Equity Chart */
+.equity-chart {
+  margin-top: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-md);
+}
+
+.chart-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  margin-bottom: var(--spacing-md);
+}
+
+.chart-container {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 150px;
+  padding: var(--spacing-sm);
+  background: var(--bg-card);
+  border-radius: var(--border-radius-sm);
+}
+
+.chart-bar {
+  flex: 1;
+  min-width: 3px;
+  background: linear-gradient(to top, var(--accent-primary), var(--accent-secondary));
+  border-radius: 2px 2px 0 0;
+  transition: opacity 0.2s;
+}
+
+.chart-bar:hover {
+  opacity: 0.8;
+}
+
 /* Header */
 .app-header {
   position: sticky;
@@ -510,6 +565,92 @@
 
 .text-muted {
   color: var(--text-muted);
+}
+
+/* Hedge Status Card */
+.hedge-status-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.hedge-status-card.safe {
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.hedge-status-card.warning {
+  border-color: var(--warning);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.hedge-status-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.hedge-status-icon {
+  font-size: 2.5rem;
+}
+
+.hedge-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hedge-status-title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+.hedge-status-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* MA Status Action */
+.ma-status-action {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+}
+
+.action-badge {
+  display: inline-block;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--border-radius-sm);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+.action-badge.safe {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--success);
+}
+
+.action-badge.warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+}
+
+/* Full width button */
+.btn-full {
+  width: 100%;
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  font-size: var(--font-size-base);
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* Bottom navigation (mobile) */
