@@ -18,8 +18,12 @@ interface YahooChartResult {
     };
 }
 
-// CORS Proxy for Yahoo Finance
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+// Multiple CORS Proxies as fallback
+const CORS_PROXIES = [
+    'https://corsproxy.io/?',
+    'https://api.codetabs.com/v1/proxy?quest=',
+    'https://cors-anywhere.herokuapp.com/',
+];
 
 const SYMBOLS = {
     taiex: '^TWII',
@@ -30,26 +34,36 @@ const SYMBOLS = {
  * 從 Yahoo Finance 取得即時價格
  */
 export async function fetchYahooPrice(symbol: string): Promise<number | null> {
-    try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
-        const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
 
-        const response = await fetch(proxyUrl);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+    // Try each proxy in order
+    for (const proxy of CORS_PROXIES) {
+        try {
+            const proxyUrl = `${proxy}${encodeURIComponent(yahooUrl)}`;
+
+            const response = await fetch(proxyUrl, {
+                headers: {
+                    'Accept': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                continue; // Try next proxy
+            }
+
+            const data: YahooChartResult = await response.json();
+
+            if (data.chart?.result?.[0]?.meta?.regularMarketPrice) {
+                return data.chart.result[0].meta.regularMarketPrice;
+            }
+        } catch (error) {
+            console.warn(`Proxy ${proxy} failed for ${symbol}:`, error);
+            continue; // Try next proxy
         }
-
-        const data: YahooChartResult = await response.json();
-
-        if (data.chart?.result?.[0]?.meta?.regularMarketPrice) {
-            return data.chart.result[0].meta.regularMarketPrice;
-        }
-
-        return null;
-    } catch (error) {
-        console.error(`Error fetching price for ${symbol}:`, error);
-        return null;
     }
+
+    console.error(`All proxies failed for ${symbol}`);
+    return null;
 }
 
 /**
