@@ -7,7 +7,6 @@ import {
   calculateHedgeContracts,
   calculateHedgeStatus,
   calculateHedgePnL,
-  generatePnLScenarios,
   SHARES_PER_UNIT
 } from './utils/calculations'
 import { formatNumber, formatPnL, formatCompactNumber } from './utils/formatters'
@@ -201,15 +200,6 @@ function App() {
 
   const maDiff = marketData.indexPrice - marketData.maValue;
   const isAboveMA = maDiff >= 0;
-
-  const etfCost = marketData.etfPrice * 0.95;
-  // PnL scenarios available for future use
-  const _pnlScenarios = generatePnLScenarios(
-    marketData.indexPrice,
-    marketData.etfPrice,
-    allocation.etfShares,
-    etfCost
-  );
 
   const toggleHedge = () => {
     if (hedgePosition.isActive) {
