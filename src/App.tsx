@@ -51,7 +51,8 @@ const STORAGE_KEYS = {
   settings: 'tw50plus2_settings_v4',
   marketData: 'tw50plus2_market_v4',
   hedgePosition: 'tw50plus2_hedge_v4',
-  portfolio: 'tw50plus2_portfolio_v4'
+  portfolio: 'tw50plus2_portfolio_v4',
+  savedBacktest: 'tw50plus2_backtest_v1'
 };
 
 function App() {
@@ -117,6 +118,19 @@ function App() {
   const [isBacktesting, setIsBacktesting] = useState(false);
   const [enableRebalance, setEnableRebalance] = useState(true);
   const [showTradeLogs, setShowTradeLogs] = useState(false);
+
+  // Saved backtest result (for dashboard display)
+  const [savedBacktest, setSavedBacktest] = useState<{
+    result: BacktestResult;
+    timestamp: string;
+  } | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.savedBacktest);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Portfolio state (from backtest or manual)
   const [portfolio, setPortfolio] = useState<Portfolio>(() =>
@@ -228,13 +242,21 @@ function App() {
         enableRebalance
       });
       setBacktestResult(result);
+
+      // Save backtest result with timestamp
+      const savedData = {
+        result,
+        timestamp: new Date().toISOString()
+      };
+      setSavedBacktest(savedData);
+      localStorage.setItem(STORAGE_KEYS.savedBacktest, JSON.stringify(savedData));
     } catch (error) {
       console.error('Backtest error:', error);
       alert('回測失敗');
     } finally {
       setIsBacktesting(false);
     }
-  }, [backtestStartDate, backtestEndDate, settings, enableRebalance]);
+  }, [backtestStartDate, backtestEndDate, settings, enableRebalance, historicalData]);
 
   // ============ CALCULATIONS ============
 
@@ -392,6 +414,42 @@ function App() {
             </div>
 
             <AllocationBar currentRatio={displayEtfValue / (displayEtfValue + displayHedgeCapital)} targetRatio={settings.targetRatio} />
+
+            {/* Saved Backtest Result */}
+            {savedBacktest && (
+              <div className="input-section" style={{ marginTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <h3 className="section-title" style={{ margin: 0, fontSize: '1rem' }}>📊 上次回測結果</h3>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {new Date(savedBacktest.timestamp).toLocaleDateString()} {new Date(savedBacktest.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                <div className="summary-card">
+                  <div className="summary-row">
+                    <span>回測期間</span>
+                    <span className="summary-value">{savedBacktest.result.summary.startDate} ~ {savedBacktest.result.summary.endDate}</span>
+                  </div>
+                  <div className="summary-row">
+                    <span>期末資產</span>
+                    <span className="summary-value" style={{ color: savedBacktest.result.summary.totalReturn > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {formatNumber(savedBacktest.result.summary.finalEquity)}
+                    </span>
+                  </div>
+                  <div className="summary-row">
+                    <span>總報酬</span>
+                    <span className="summary-value" style={{ color: savedBacktest.result.summary.totalReturn > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {savedBacktest.result.summary.totalReturn > 0 ? '+' : ''}{formatNumber(savedBacktest.result.summary.totalReturn)} ({savedBacktest.result.summary.totalReturnPercent.toFixed(1)}%)
+                    </span>
+                  </div>
+                  <div className="summary-row">
+                    <span>最大回撤</span>
+                    <span className="summary-value" style={{ color: 'var(--warning)' }}>
+                      -{savedBacktest.result.summary.maxDrawdown.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* MA Status */}
             <div className={`ma-status-card ${isAboveMA ? 'safe' : 'warning'}`}>
