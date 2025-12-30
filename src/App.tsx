@@ -11,9 +11,9 @@ import {
 } from './utils/calculations'
 import { formatNumber, formatPnL, formatCompactNumber } from './utils/formatters'
 import { fetchAllPrices } from './services/priceService'
-import { runBacktest, getDateRange } from './services/backtestService'
+import { runBacktest } from './services/backtestService'
 import type { BacktestResult } from './services/backtestService'
-import historicalData from './data/historicalData.json'
+import { fetchHistoricalData, getCachedData, getDateRangeFromData, clearCache, type HistoricalData } from './services/yahooHistoricalService'
 
 // Types
 interface MarketData {
@@ -99,10 +99,20 @@ function App() {
     })
   );
 
+  // Historical data state (dynamic from Yahoo Finance)
+  const [historicalData, setHistoricalData] = useState<HistoricalData[]>(() => {
+    const cached = getCachedData();
+    return cached?.data || [];
+  });
+  const [isLoadingHistorical, setIsLoadingHistorical] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState('');
+  const [dataError, setDataError] = useState<string | null>(null);
+
   // Backtest state
-  const dateRange = getDateRange(historicalData);
-  const [backtestStartDate, setBacktestStartDate] = useState(dateRange.minDate);
-  const [backtestEndDate, setBacktestEndDate] = useState(dateRange.maxDate);
+  const today = new Date().toISOString().split('T')[0];
+  const dateRange = getDateRangeFromData(historicalData);
+  const [backtestStartDate, setBacktestStartDate] = useState('2015-01-01');
+  const [backtestEndDate, setBacktestEndDate] = useState(today);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [isBacktesting, setIsBacktesting] = useState(false);
   const [enableRebalance, setEnableRebalance] = useState(true);
@@ -150,6 +160,28 @@ function App() {
     };
   }, []);
 
+  // Fetch historical data from Yahoo Finance
+  const handleFetchHistoricalData = useCallback(async () => {
+    setIsLoadingHistorical(true);
+    setDataError(null);
+    setLoadingProgress('正在連接 Yahoo Finance...');
+    try {
+      const data = await fetchHistoricalData('2015-01-01', today, (msg) => setLoadingProgress(msg));
+      setHistoricalData(data);
+      // Update date range based on actual data
+      if (data.length > 0) {
+        const range = getDateRangeFromData(data);
+        setBacktestStartDate(range.minDate);
+        setBacktestEndDate(range.maxDate);
+      }
+    } catch (error) {
+      console.error('Error fetching historical data:', error);
+      setDataError(error instanceof Error ? error.message : '載入失敗');
+    } finally {
+      setIsLoadingHistorical(false);
+    }
+  }, [today]);
+
   // Fetch real-time prices
   const handleFetchPrices = useCallback(async () => {
     setIsFetching(true);
@@ -178,7 +210,7 @@ function App() {
     } finally {
       setIsFetching(false);
     }
-  }, [settings.maPeriod]);
+  }, [settings.maPeriod, historicalData]);
 
   // Run backtest
   const handleRunBacktest = useCallback(() => {
@@ -482,31 +514,79 @@ function App() {
           <div className="animate-fade-in">
             <div className="input-section">
               <h2 className="section-title">📈 歷史回測</h2>
-              <p className="section-desc">
-                使用 {historicalData.length} 筆歷史資料 ({dateRange.minDate} ~ {dateRange.maxDate})
-              </p>
 
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">起始日期</label>
-                  <input type="date" className="form-input" value={backtestStartDate} min={dateRange.minDate} max={dateRange.maxDate} onChange={(e) => setBacktestStartDate(e.target.value)} />
+              {/* Yahoo Finance Data Loading Section */}
+              <div className="summary-card" style={{ marginBottom: '1rem' }}>
+                <div className="summary-row">
+                  <span>📡 資料來源</span>
+                  <span className="summary-value">Yahoo Finance</span>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">結束日期</label>
-                  <input type="date" className="form-input" value={backtestEndDate} min={dateRange.minDate} max={dateRange.maxDate} onChange={(e) => setBacktestEndDate(e.target.value)} />
+                <div className="summary-row">
+                  <span>已載入資料</span>
+                  <span className="summary-value">
+                    {historicalData.length > 0
+                      ? `${historicalData.length} 筆 (${dateRange.minDate} ~ ${dateRange.maxDate})`
+                      : '尚未載入'}
+                  </span>
                 </div>
+                {isLoadingHistorical && (
+                  <div className="summary-row">
+                    <span>⏳ 狀態</span>
+                    <span className="summary-value">{loadingProgress}</span>
+                  </div>
+                )}
+                {dataError && (
+                  <div className="summary-row" style={{ color: '#ef4444' }}>
+                    <span>❌ 錯誤</span>
+                    <span className="summary-value">{dataError}</span>
+                  </div>
+                )}
               </div>
 
-              <div className="form-group">
-                <label className="checkbox-label">
-                  <input type="checkbox" checked={enableRebalance} onChange={(e) => setEnableRebalance(e.target.checked)} />
-                  啟用每月再平衡 (根據 {(settings.targetRatio * 100).toFixed(0)}/{((1 - settings.targetRatio) * 100).toFixed(0)} 比例)
-                </label>
+              <div className="form-grid" style={{ marginBottom: '1rem' }}>
+                <button
+                  className={`btn btn-primary ${isLoadingHistorical ? 'loading' : ''}`}
+                  onClick={handleFetchHistoricalData}
+                  disabled={isLoadingHistorical}
+                >
+                  {isLoadingHistorical ? '⏳ 載入中...' : '📡 從 Yahoo Finance 載入資料'}
+                </button>
+                {historicalData.length > 0 && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => { clearCache(); setHistoricalData([]); }}
+                    disabled={isLoadingHistorical}
+                  >
+                    🗑️ 清除快取
+                  </button>
+                )}
               </div>
 
-              <button className={`btn btn-primary btn-full ${isBacktesting ? 'loading' : ''}`} onClick={handleRunBacktest} disabled={isBacktesting}>
-                {isBacktesting ? '⏳ 回測中...' : '🚀 開始回測'}
-              </button>
+              {historicalData.length > 0 && (
+                <>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label className="form-label">起始日期</label>
+                      <input type="date" className="form-input" value={backtestStartDate} min={dateRange.minDate} max={dateRange.maxDate} onChange={(e) => setBacktestStartDate(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">結束日期</label>
+                      <input type="date" className="form-input" value={backtestEndDate} min={dateRange.minDate} max={dateRange.maxDate} onChange={(e) => setBacktestEndDate(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={enableRebalance} onChange={(e) => setEnableRebalance(e.target.checked)} />
+                      啟用每月再平衡 (根據 {(settings.targetRatio * 100).toFixed(0)}/{((1 - settings.targetRatio) * 100).toFixed(0)} 比例)
+                    </label>
+                  </div>
+
+                  <button className={`btn btn-primary btn-full ${isBacktesting ? 'loading' : ''}`} onClick={handleRunBacktest} disabled={isBacktesting || historicalData.length === 0}>
+                    {isBacktesting ? '⏳ 回測中...' : '🚀 開始回測'}
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Backtest Results */}
